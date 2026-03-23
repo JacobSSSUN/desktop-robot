@@ -1,7 +1,7 @@
 #!/usr/bin/env python3
 """
 chat_bridge.py — 语音对话桥接
-监听 chat_in.txt → 先尝试 HA 设备控制 → 否则 OpenClaw 对话 → 写入 chat_out.txt
+监听 chat_in.txt → HA 设备控制 / Notion 笔记记录 / OpenClaw 对话 → 写入 chat_out.txt
 """
 import os
 import json
@@ -19,6 +19,13 @@ TIMEOUT = 30
 # 导入 HA 桥接
 sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
 from ha_bridge import handle_voice_command
+from notion_bridge import detect_record_intent, write_to_notion
+from notion_reminder import query_due_reminders, extract_reminder_info, tts_speak
+
+# 提醒检查
+_reminder_log = {}  # {page_id_datestr: timestamp}
+_reminder_counter = 0
+REMINDER_CHECK_INTERVAL = 60  # 每60轮检查一次（约30秒）
 
 
 def send_to_openclaw(text):
@@ -58,11 +65,29 @@ def cleanup():
             pass
 
 
+def check_reminders():
+    """检查到期的 Notion 提醒"""
+    global _reminder_log
+    try:
+        results = query_due_reminders()
+        for page in results:
+            page_id, title, date_str, tag = extract_reminder_info(page)
+            key = f"{page_id}_{date_str}"
+            if key not in _reminder_log:
+                print(f"[Reminder] 到期: {title}")
+                tts_speak(title)
+                _reminder_log[key] = time.time()
+    except Exception as e:
+        print(f"[Reminder] 检查失败: {e}")
+
+
 def main():
+    global _reminder_counter
     print("=== 🌉 Chat Bridge 启动 ===")
     print(f"  监听: {CHAT_IN}")
     print(f"  回复: {CHAT_OUT}")
     print(f"  HA: 已集成")
+    print(f"  Notion: 已集成（莓虾笔记）")
     print(f"  OpenClaw: {GATEWAY_URL}")
     print()
 
@@ -83,22 +108,41 @@ def main():
                     if text:
                         print(f"[Bridge] 收到: {text}")
 
-                        # 先尝试 HA 设备控制
+                        # 1. 先尝试 HA 设备控制
                         is_cmd, reply = handle_voice_command(text)
                         if is_cmd:
                             print(f"[Bridge] HA 指令: {reply}")
                             write_reply(reply)
-                        else:
-                            # 非设备指令，走 OpenClaw 对话
-                            reply = send_to_openclaw(text)
-                            if reply:
-                                print(f"[Bridge] 回复: {reply}")
-                                write_reply(reply)
+                            continue
+
+                        # 2. 检查 Notion 记录意图
+                        is_record, content, tag = detect_record_intent(text)
+                        if is_record:
+                            ok = write_to_notion(content, content, tag)
+                            if ok:
+                                reply = f"记好了，标签：{tag}"
                             else:
-                                write_reply("抱歉，我暂时无法回答")
-                                print("[Bridge] 超时或错误")
+                                reply = "记笔记失败了，稍后再试"
+                            print(f"[Bridge] Notion: {reply}")
+                            write_reply(reply)
+                            continue
+
+                        # 3. 走 OpenClaw 对话
+                        reply = send_to_openclaw(text)
+                        if reply:
+                            print(f"[Bridge] 回复: {reply}")
+                            write_reply(reply)
+                        else:
+                            write_reply("抱歉，我暂时无法回答")
+                            print("[Bridge] 超时或错误")
             except FileNotFoundError:
                 pass
+
+            # 定期检查 Notion 提醒
+            _reminder_counter += 1
+            if _reminder_counter >= REMINDER_CHECK_INTERVAL:
+                _reminder_counter = 0
+                check_reminders()
 
             time.sleep(0.5)
 
