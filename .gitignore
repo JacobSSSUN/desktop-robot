@@ -1,0 +1,26 @@
+# 运行时文件
+__pycache__/
+*.pyc
+*.pyo
+*.log
+nohup.out
+
+# 敏感数据
+ncm_cookies.txt
+secrets/
+*.key
+
+# 运行时生成
+chat_in.txt
+chat_out.txt
+music_request.json
+music_shuffle.json
+music_status.json
+ncm_liked.json
+emotion.txt
+message.txt
+
+# 系统文件
+.DS_Store
+*.swp
+*.swo
