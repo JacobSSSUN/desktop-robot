@@ -19,6 +19,8 @@ music_status.json
 ncm_liked.json
 emotion.txt
 message.txt
+reminders.json
+briefing_state.json
 
 # 系统文件
 .DS_Store

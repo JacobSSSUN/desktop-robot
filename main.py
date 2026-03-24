@@ -27,6 +27,8 @@ from servo import ServoController
 from voice_pipeline import VoicePipeline
 from music_player import MusicPlayer
 import spidev
+from reminder import add_reminder, check_due, dismiss, dismiss_all_triggered, snooze, list_pending, cancel_last, play_ding, cleanup_old
+import briefing
 
 
 
@@ -115,6 +117,18 @@ def main():
 
     # 超声波开关
     ultrasonic_enabled = False
+
+    # 提醒状态
+    active_reminder = None       # 当前显示的提醒 {"id", "message", "time"}
+    reminder_show_time = 0       # 提醒卡片显示的时间戳
+    REMINDER_AUTO_DISMISS = 60   # 60秒自动关闭
+
+    # 提醒卡片按钮（动态生成，在绘制时计算位置）
+    reminder_ok_btn = None
+    reminder_snooze_btn = None
+
+    # 早报播报状态
+    briefing_running = [False]   # 是否正在播报
 
     # 底部按钮
     BTN_SIZE = 50
@@ -402,6 +416,85 @@ def main():
     signal.signal(signal.SIGTERM, cleanup)
     signal.signal(signal.SIGINT, cleanup)
 
+    def play_ding_twice():
+        """播放叮咚提示音 ×3（更长更醒目的提示音）"""
+        import pygame as pg
+        sample_rate = 22050
+
+        def make_tone(freq, duration, volume=0.5):
+            t = np.linspace(0, duration, int(sample_rate * duration), endpoint=False)
+            tone = np.sin(2 * np.pi * freq * t) * volume
+            fade_out = np.linspace(1, 0, len(tone))
+            return (tone * fade_out * 32767).astype(np.int16)
+
+        silence_short = np.zeros(int(sample_rate * 0.08), dtype=np.int16)
+        silence_long = np.zeros(int(sample_rate * 0.25), dtype=np.int16)
+
+        # 单组叮咚
+        ding1 = np.concatenate([make_tone(800, 0.12), silence_short, make_tone(1200, 0.18)])
+        # 三遍
+        sound_data = np.concatenate([ding1, silence_long, ding1, silence_long, ding1])
+        try:
+            snd = pg.mixer.Sound(buffer=sound_data)
+            snd.play()
+        except Exception as e:
+            print(f"[Reminder] 播放音效失败: {e}")
+
+    def draw_reminder_card(surface):
+        """绘制提醒卡片（覆盖右半屏脸区域）"""
+        if active_reminder is None:
+            return
+
+        # 遮罩层
+        overlay = pygame.Surface((SCREEN_WIDTH // 2, SCREEN_HEIGHT), pygame.SRCALPHA)
+        overlay.fill((0, 0, 0, 180))
+        right_x = SCREEN_WIDTH // 2
+        surface.blit(overlay, (right_x, 0))
+
+        # 卡片区域（右半屏居中）
+        card_w = 420
+        card_h = 280
+        card_x = right_x + (SCREEN_WIDTH // 2 - card_w) // 2
+        card_y = (SCREEN_HEIGHT - card_h) // 2 - 20
+
+        # 卡片背景
+        card_rect = pygame.Rect(card_x, card_y, card_w, card_h)
+        pygame.draw.rect(surface, (35, 35, 50), card_rect, border_radius=16)
+        pygame.draw.rect(surface, (100, 180, 255), card_rect, 2, border_radius=16)
+
+        # 标题（纯文字，不用 emoji）
+        title_font = pygame.font.Font("/usr/share/fonts/opentype/noto/NotoSansCJK-Regular.ttc", 22)
+        msg_font = pygame.font.Font("/usr/share/fonts/opentype/noto/NotoSansCJK-Regular.ttc", 28)
+        time_font = pygame.font.Font("/usr/share/fonts/opentype/noto/NotoSansCJK-Regular.ttc", 16)
+
+        title = title_font.render("[ 提醒 ]", True, (100, 180, 255))
+        surface.blit(title, (card_x + (card_w - title.get_width()) // 2, card_y + 20))
+
+        # 提醒内容（大字居中）
+        msg = active_reminder["message"]
+        msg_surf = msg_font.render(msg, True, (255, 255, 255))
+        surface.blit(msg_surf, (card_x + (card_w - msg_surf.get_width()) // 2, card_y + 70))
+
+        # 设置时间
+        set_time = time.strftime("%H:%M", time.localtime(active_reminder["time"]))
+        time_text = time_font.render(f"设置于 {set_time}", True, (120, 120, 140))
+        surface.blit(time_text, (card_x + (card_w - time_text.get_width()) // 2, card_y + 120))
+
+        # 按钮（使用预计算的位置）
+        btn_font = pygame.font.Font("/usr/share/fonts/opentype/noto/NotoSansCJK-Regular.ttc", 18)
+
+        if reminder_ok_btn:
+            pygame.draw.rect(surface, (60, 140, 80), reminder_ok_btn, border_radius=10)
+            ok_text = btn_font.render("知道了", True, (255, 255, 255))
+            surface.blit(ok_text, (reminder_ok_btn.x + (reminder_ok_btn.w - ok_text.get_width()) // 2,
+                                   reminder_ok_btn.y + (reminder_ok_btn.h - ok_text.get_height()) // 2))
+
+        if reminder_snooze_btn:
+            pygame.draw.rect(surface, (60, 60, 90), reminder_snooze_btn, border_radius=10)
+            snooze_text = btn_font.render("再等5分钟", True, (180, 180, 200))
+            surface.blit(snooze_text, (reminder_snooze_btn.x + (reminder_snooze_btn.w - snooze_text.get_width()) // 2,
+                                       reminder_snooze_btn.y + (reminder_snooze_btn.h - snooze_text.get_height()) // 2))
+
     time.sleep(1)
     print("[Main] 运行中 — 点击底部按钮操作")
 
@@ -530,6 +623,20 @@ def main():
                         running = False
                 elif event.type == pygame.MOUSEBUTTONDOWN:
                     mx, my = event.pos
+                    # 提醒卡片按钮（最高优先级）
+                    if active_reminder is not None:
+                        if reminder_ok_btn and reminder_ok_btn.collidepoint(mx, my):
+                            dismiss(active_reminder["id"])
+                            print(f"[Reminder] 已确认: {active_reminder['message']}")
+                            active_reminder = None
+                            reminder_ok_btn = None
+                            reminder_snooze_btn = None
+                        elif reminder_snooze_btn and reminder_snooze_btn.collidepoint(mx, my):
+                            snooze(active_reminder["id"], 5)
+                            print(f"[Reminder] 推迟5分钟: {active_reminder['message']}")
+                            active_reminder = None
+                            reminder_ok_btn = None
+                            reminder_snooze_btn = None
                     # 音乐播放器按钮（优先级最高）
                     if music_player.handle_click(mx, my):
                         pass
@@ -686,22 +793,59 @@ def main():
                 elif zone == "medium":
                     character.trigger_emotion("surprised", 1.5)
 
+            # 提醒检查
+            if active_reminder is None:
+                due = check_due()
+                if due:
+                    active_reminder = due[0]
+                    reminder_show_time = time.time()
+                    play_ding_twice()
+                    character.trigger_emotion("surprised", 3)
+                    # 计算按钮位置（固定在右半屏）
+                    right_x = SCREEN_WIDTH // 2
+                    card_w, card_h = 420, 280
+                    card_x = right_x + (SCREEN_WIDTH // 2 - card_w) // 2
+                    card_y = (SCREEN_HEIGHT - card_h) // 2 - 20
+                    btn_y = card_y + 170
+                    btn_h = 44
+                    reminder_ok_btn = pygame.Rect(card_x + (card_w // 2 - 140) // 2, btn_y, 140, btn_h)
+                    reminder_snooze_btn = pygame.Rect(card_x + card_w // 2 + (card_w // 2 - 160) // 2, btn_y, 160, btn_h)
+                    print(f"[Reminder] 触发: {active_reminder['message']}")
+            else:
+                # 超时自动关闭
+                if time.time() - reminder_show_time > REMINDER_AUTO_DISMISS:
+                    dismiss(active_reminder["id"])
+                    active_reminder = None
+                    reminder_ok_btn = None
+                    reminder_snooze_btn = None
+
             # PIR 人体感应
             pir_active = pir.is_detected()
-            if pir_active:
-                if character.emotion == "sleepy":
-                    character.trigger_emotion("happy", 3)
+
+            # 早报自动播报
+            if (pir_active and screen_on
+                    and not briefing_running[0]
+                    and not voice_recording[0]
+                    and not voice_processing[0]
+                    and briefing.should_brief()):
+                briefing_running[0] = True
+
+                def _do_briefing():
+                    try:
+                        text = briefing.compose()
+                        print(f"[Briefing] 播报: {text}")
+                        character.trigger_emotion("happy", 8)
+                        voice.speak(text)
+                        briefing.mark_done()
+                    except Exception as e:
+                        print(f"[Briefing] 错误: {e}")
+                    finally:
+                        briefing_running[0] = False
+
+                threading.Thread(target=_do_briefing, daemon=True).start()
 
             # 屏幕控制
-            chat_active = False
-            try:
-                em = os.path.getmtime(EMOTION_FILE)
-                if em != last_emotion_mtime:
-                    chat_active = True
-            except Exception:
-                pass
-
-            if pir_active or chat_active:
+            if pir_active:
                 no_activity_timer = 0
                 if not screen_on:
                     screen_power(True)
@@ -726,6 +870,9 @@ def main():
 
                 # 语音按钮（原气泡位置）
                 draw_voice_button(screen)
+
+                # 提醒卡片（覆盖在脸上）
+                draw_reminder_card(screen)
 
                 # PIR 状态指示（右上角小点）
                 if pir.is_detected():

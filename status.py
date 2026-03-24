@@ -45,7 +45,7 @@ class InfoPanel:
         try:
             # 获取天气（中文，深圳）
             result = subprocess.run(
-                ["curl", "-s", "-H", "Accept-Language: zh-CN",
+                ["curl", "-s", "--noproxy", "*", "-H", "Accept-Language: zh-CN",
                  "wttr.in/Shenzhen?format=%c|%t|%C|%h|%w", "--max-time", "5"],
                 capture_output=True, text=True, timeout=8
             )

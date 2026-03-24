@@ -13,6 +13,8 @@ import time
 import threading
 import os
 from faster_whisper import WhisperModel
+from reminder import add_reminder, list_pending, cancel_last
+import re
 
 WHISPER_MODEL = "tiny"
 WHISPER_LANGUAGE = "zh"
@@ -263,9 +265,18 @@ class VoicePipeline:
 
     # ---- 语音对话 ----
     def chat(self, text):
-        """发送文字到 OpenClaw，获取回复并播报"""
+        """发送文字到 OpenClaw，获取回复并播报。支持本地提醒解析。"""
         if not text:
             return
+
+        # 检查是否是提醒指令
+        reminder_reply = self._try_handle_reminder(text)
+        if reminder_reply:
+            print(f"[Chat] 提醒指令: {text}")
+            print(f"[Chat] 回复: {reminder_reply}")
+            self.speak(reminder_reply)
+            return
+
         print(f"[Chat] 用户: {text}")
         self._set_emotion("thinking", 60)
 
@@ -296,6 +307,117 @@ class VoicePipeline:
             print("[Chat] 超时，无回复")
             self.speak("我没有想好怎么回答")
             self._set_emotion("idle", 0)
+
+    def _try_handle_reminder(self, text):
+        """尝试解析提醒指令。返回回复文本，如果不是提醒则返回 None。"""
+        # 繁体转简体（Whisper 可能输出繁体）
+        zh_map = {'分鐘': '分钟', '小時': '小时', '小時': '小时', '個': '个',
+                  '會': '会', '嗎': '吗', '點': '点', '後': '后',
+                  '號': '号', '分鐘': '分钟', '時': '时', '鐘': '钟'}
+        for k, v in zh_map.items():
+            text = text.replace(k, v)
+
+        # 查询提醒
+        if re.search(r"(我有|有哪些|查看|列出|有什么).*提醒", text) or re.search(r"提醒.*(列表|有哪些|查看|有什么)", text):
+            pending = list_pending()
+            if not pending:
+                return "你目前没有待触发的提醒"
+            lines = []
+            for r in pending:
+                t = time.strftime("%H:%M", time.localtime(r["time"]))
+                lines.append(f"{t}：{r['message']}")
+            return "你有以下提醒：" + "，".join(lines)
+
+        # 取消提醒
+        if re.search(r"(取消|删除|清除|撤销).*提醒", text) or re.search(r"提醒.*(取消|删除|清除|撤销)", text):
+            r = cancel_last()
+            if r:
+                return f"已取消提醒：{r['message']}"
+            return "没有可以取消的提醒"
+
+        # 设置相对时间提醒 — 支持多种口语
+        # 匹配: "提醒我10分钟后喝水" / "10分钟后提醒我喝水" / "提个醒10分钟后" / "帮我设个提醒10分钟后" / "提醒一下10分钟后"
+        m = re.search(r"(?:提醒我?|提个醒|设个?提醒|帮我.{0,4}提醒|提醒一下)\s*(?:过?|等?)\s*(\d+)\s*(分钟|小时|秒)\s*(?:后)?\s*(?:提醒我?)?\s*(.*)", text)
+        if m:
+            amount = int(m.group(1))
+            unit = m.group(2)
+            message = m.group(3).strip()
+            if not message:
+                message = "时间到了"
+            if "分钟" in unit:
+                when = time.time() + amount * 60
+            elif "小时" in unit:
+                when = time.time() + amount * 3600
+            else:
+                when = time.time() + amount
+            add_reminder(when, message)
+            display_time = time.strftime("%H:%M", time.localtime(when))
+            return f"好的，{display_time}提醒你{message}"
+
+        # 也试试 "X分钟后提醒我Y" 的语序
+        m = re.search(r"(\d+)\s*(分钟|小时|秒)\s*后\s*提醒我?\s*(.*)", text)
+        if m:
+            amount = int(m.group(1))
+            unit = m.group(2)
+            message = m.group(3).strip()
+            if not message:
+                message = "时间到了"
+            if "分钟" in unit:
+                when = time.time() + amount * 60
+            elif "小时" in unit:
+                when = time.time() + amount * 3600
+            else:
+                when = time.time() + amount
+            add_reminder(when, message)
+            display_time = time.strftime("%H:%M", time.localtime(when))
+            return f"好的，{display_time}提醒你{message}"
+
+        # 设置绝对时间提醒（今天 HH:MM）
+        m = re.search(r"(?:提醒我?|提个醒|设个?提醒)\s*(?:今天)?\s*(上午|下午|中午|晚上)?\s*(\d{1,2})\s*(?:点|:)\s*(\d{1,2})?\s*(?:分)?\s*(?:提醒我?)?\s*(.*)", text)
+        if m:
+            period = m.group(1) or ""
+            hour = int(m.group(2))
+            minute = int(m.group(3)) if m.group(3) else 0
+            message = m.group(4).strip() if m.group(4) else "时间到了"
+
+            if "下午" in period or "晚上" in period:
+                if hour < 12:
+                    hour += 12
+            elif "上午" in period:
+                if hour == 12:
+                    hour = 0
+
+            now = time.localtime()
+            when = time.mktime(time.struct_time((
+                now.tm_year, now.tm_mon, now.tm_mday,
+                hour, minute, 0, now.tm_wday, now.tm_yday, now.tm_isdst
+            )))
+            if when <= time.time():
+                when += 86400
+
+            add_reminder(when, message)
+            display_time = time.strftime("%H:%M", time.localtime(when))
+            return f"好的，{display_time}提醒你{message}"
+
+        # "X点提醒我Y"
+        m = re.search(r"(\d{1,2})\s*点\s*提醒我?\s*(.*)", text)
+        if m:
+            hour = int(m.group(1))
+            message = m.group(2).strip()
+            if not message:
+                message = "时间到了"
+            now = time.localtime()
+            when = time.mktime(time.struct_time((
+                now.tm_year, now.tm_mon, now.tm_mday,
+                hour, 0, 0, now.tm_wday, now.tm_yday, now.tm_isdst
+            )))
+            if when <= time.time():
+                when += 86400
+            add_reminder(when, message)
+            display_time = time.strftime("%H:%M", time.localtime(when))
+            return f"好的，{display_time}提醒你{message}"
+
+        return None
 
     def cleanup(self):
         self._wake_listening = False
