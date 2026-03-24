@@ -37,6 +37,11 @@ class InfoPanel:
         # 温度平滑
         self.temp_history = deque(maxlen=30)
 
+        # 功率缓存（防闪烁）
+        self._power_cache = None
+        self._power_time = 0
+        self._power_interval = 3  # 3秒刷新一次
+
     def _load_weather(self):
         now = time.time()
         if now - self.weather_fetch_time < self.weather_interval:
@@ -86,6 +91,39 @@ class InfoPanel:
         except Exception as e:
             print(f"[Weather] 异常: {e}，{self.weather_interval}秒后重试")
 
+    def _get_power(self):
+        """从 PMIC 读取树莓派总功率 (W)"""
+        try:
+            result = subprocess.run(
+                ["vcgencmd", "pmic_read_adc"],
+                capture_output=True, text=True, timeout=3
+            )
+            if result.returncode != 0:
+                return None
+            lines = result.stdout.strip().splitlines()
+            # 收集所有电压和电流，用 rail 基础名做 key
+            voltages = {}
+            currents = {}
+            for line in lines:
+                line = line.strip()
+                if "volt" in line and "=" in line:
+                    name = line.split("volt")[0].strip()
+                    base = name.rsplit("_V", 1)[0] if name.endswith("_V") else name
+                    val = float(line.split("=")[1].replace("V", "").strip())
+                    voltages[base] = val
+                elif "current" in line and "=" in line:
+                    name = line.split("current")[0].strip()
+                    base = name.rsplit("_A", 1)[0] if name.endswith("_A") else name
+                    val = float(line.split("=")[1].replace("A", "").strip())
+                    currents[base] = val
+            total_w = 0.0
+            for base in voltages:
+                if base in currents:
+                    total_w += voltages[base] * currents[base]
+            return total_w if total_w > 0 else None
+        except Exception:
+            return None
+
     def _get_sys_info(self):
         try:
             with open("/sys/class/thermal/thermal_zone0/temp") as f:
@@ -114,7 +152,11 @@ class InfoPanel:
             disk_pct = int(disk_parts[4].replace("%", ""))
         except Exception:
             disk_pct = 0
-        return temp, load1, load5, load15, mem_pct, disk_pct
+        now = time.time()
+        if now - self._power_time >= self._power_interval:
+            self._power_cache = self._get_power()
+            self._power_time = now
+        return temp, load1, load5, load15, mem_pct, disk_pct, self._power_cache
 
     def _draw_weather_icon(self, x, y, wtype):
         """画天气图标"""
@@ -249,9 +291,9 @@ class InfoPanel:
         # === 系统 ===
         st = get_font(16, bold=True).render("SYSTEM", True, (120, 140, 170))
         self.screen.blit(st, (32, y))
-        y += 28
+        y += 24
 
-        temp, load1, load5, load15, mem_pct, disk_pct = self._get_sys_info()
+        temp, load1, load5, load15, mem_pct, disk_pct, power_w = self._get_sys_info()
 
         if temp > 70:
             tc = (255, 80, 80)
@@ -260,11 +302,24 @@ class InfoPanel:
         else:
             tc = (100, 220, 150)
 
+        if power_w is not None:
+            if power_w > 15:
+                pc = (255, 80, 80)
+            elif power_w > 8:
+                pc = (255, 200, 80)
+            else:
+                pc = (100, 220, 150)
+            power_str = f"{power_w:.1f}W"
+        else:
+            pc = (120, 120, 130)
+            power_str = "--"
+
         items = [
             ("CPU 温度", f"{temp:.0f}°", tc),
             ("系统负载", f"{load1} / {load5} / {load15}", (180, 200, 220)),
             ("内存使用", f"{mem_pct}%", (180, 200, 220)),
             ("磁盘使用", f"{disk_pct}%", (180, 200, 220)),
+            ("实时功率", power_str, pc),
         ]
 
         bar_w = pw - 64
@@ -273,4 +328,4 @@ class InfoPanel:
             self.screen.blit(ls, (32, y))
             vs = get_font(20, bold=True).render(value, True, color)
             self.screen.blit(vs, (200, y))
-            y += 30
+            y += 28

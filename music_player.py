@@ -9,6 +9,7 @@ import os
 import time
 import random
 import signal as sig
+from font_helper import get_font
 
 ROBOT_DIR = "/home/jacob/robot"
 NCM_API = os.path.join(ROBOT_DIR, "ncm_api.js")
@@ -28,7 +29,7 @@ def _plog(msg):
     except Exception:
         pass
 
-BTN_R = 18  # 按钮圆半径
+BTN_R = 20  # 按钮圆半径
 
 
 class MusicPlayer:
@@ -53,12 +54,9 @@ class MusicPlayer:
         self._paused_elapsed = 0     # 暂停时已播放的秒数
         self._paused_song_id = None  # 暂停时的歌曲 ID
 
-        self.font_song = pygame.font.Font(
-            "/usr/share/fonts/opentype/noto/NotoSansCJK-Regular.ttc", 15)
-        self.font_pl = pygame.font.Font(
-            "/usr/share/fonts/opentype/noto/NotoSansCJK-Regular.ttc", 12)
-        self.font_btn = pygame.font.Font(
-            "/usr/share/fonts/opentype/noto/NotoSansCJK-Regular.ttc", 16)
+        self.font_song = get_font(24, bold=True)
+        self.font_pl = get_font(16, bold=True)
+        self.font_btn = get_font(18, bold=True)
 
         self._load_shuffle()
         self._load_playlist()
@@ -330,7 +328,6 @@ class MusicPlayer:
             if dx * dx + dy * dy <= (BTN_R + 5) ** 2:
                 self._on_button(name)
                 return True
-        # 检查是否点在歌曲信息区域（未来可扩展）
         return False
 
     def _button_centers(self, cy):
@@ -359,15 +356,15 @@ class MusicPlayer:
         # 背景
         pygame.draw.rect(self.screen, (40, 40, 58),
                          (self.x, self.y, self.w, self.h), border_radius=10)
-        pygame.draw.rect(self.screen, (90, 90, 120),
+        pygame.draw.rect(self.screen, (130, 130, 170),
                          (self.x, self.y, self.w, self.h), 2, border_radius=10)
 
         pad = 12
 
         # 歌单名
         pl_text = self.playlist_name or "未选择歌单"
-        pl_surf = self.font_pl.render(pl_text, True, (170, 170, 200))
-        self.screen.blit(pl_surf, (self.x + pad, self.y + 8))
+        pl_surf = self.font_pl.render(pl_text, True, (210, 210, 240))
+        self.screen.blit(pl_surf, (self.x + pad, self.y + 6))
 
         # 当前歌曲
         if self.current_song:
@@ -383,14 +380,14 @@ class MusicPlayer:
                 song_surf = self.font_song.render(song_text + "...", True, (255, 255, 255))
             self.screen.blit(song_surf, (self.x + pad, self.y + 26))
 
-            artist_surf = self.font_pl.render(artist_text, True, (160, 160, 190))
+            artist_surf = self.font_pl.render(artist_text, True, (200, 200, 230))
             if artist_surf.get_width() > max_w:
                 while len(artist_text) > 4 and self.font_pl.size(artist_text + "...")[0] > max_w:
                     artist_text = artist_text[:-1]
-                artist_surf = self.font_pl.render(artist_text + "...", True, (160, 160, 190))
-            self.screen.blit(artist_surf, (self.x + pad, self.y + 44))
+                artist_surf = self.font_pl.render(artist_text + "...", True, (200, 200, 230))
+            self.screen.blit(artist_surf, (self.x + pad, self.y + 56))
         else:
-            hint = self.font_pl.render("点击 ▶ 开始播放", True, (140, 140, 170))
+            hint = self.font_pl.render("点击 ▶ 开始播放", True, (180, 180, 210))
             self.screen.blit(hint, (self.x + pad, self.y + 32))
 
         # 按钮行
@@ -408,10 +405,10 @@ class MusicPlayer:
 
     def _draw_btn(self, cx, cy, btn_type):
         # 按钮背景
-        pygame.draw.circle(self.screen, (55, 55, 78), (cx, cy), BTN_R)
-        pygame.draw.circle(self.screen, (120, 120, 155), (cx, cy), BTN_R, 2)
+        pygame.draw.circle(self.screen, (65, 65, 90), (cx, cy), BTN_R)
+        pygame.draw.circle(self.screen, (140, 140, 175), (cx, cy), BTN_R, 2)
 
-        color = (230, 230, 250)
+        color = (240, 240, 255)
 
         if btn_type == "prev":
             # |<
@@ -451,16 +448,12 @@ class MusicPlayer:
                 pygame.draw.polygon(self.screen, color, [
                     (cx + 4, cy - 6), (cx + 4, cy), (cx + 9, cy - 4)
                 ])
-                # 底部标签
-                lbl = self.font_pl.render("R", True, (80, 230, 80))
             else:
                 # 直线箭头 (顺序)
                 pygame.draw.line(self.screen, color, (cx - 8, cy), (cx + 6, cy), 2)
                 pygame.draw.polygon(self.screen, color, [
                     (cx + 6, cy), (cx + 1, cy - 5), (cx + 1, cy + 5)
                 ])
-                lbl = self.font_pl.render("S", True, (190, 190, 230))
-            self.screen.blit(lbl, (cx - 3, cy + BTN_R - 4))
 
     def cleanup(self):
         self._stop()

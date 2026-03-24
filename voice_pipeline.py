@@ -16,8 +16,9 @@ from faster_whisper import WhisperModel
 from reminder import add_reminder, list_pending, cancel_last
 import re
 
-WHISPER_MODEL = "tiny"
+WHISPER_MODEL = "small"
 WHISPER_LANGUAGE = "zh"
+WHISPER_PROMPT = "以下是普通话的句子，偶尔夹杂英语单词。请用简体中文输出。"
 SAMPLE_RATE = 48000
 CHANNELS = 1
 CHUNK = 4096
@@ -130,6 +131,8 @@ class VoicePipeline:
         segments, info = model.transcribe(
             tmp.name, language=WHISPER_LANGUAGE,
             beam_size=5, vad_filter=True,
+            initial_prompt=WHISPER_PROMPT,
+            condition_on_previous_text=False,
         )
         text = "".join(seg.text for seg in segments).strip()
         print(f"[Voice] 识别完成 ({time.time()-t0:.1f}s): {text}")
@@ -248,6 +251,8 @@ class VoicePipeline:
                 segments, _ = model.transcribe(
                     tmp.name, language=WHISPER_LANGUAGE,
                     beam_size=1, vad_filter=True,
+                    initial_prompt=WHISPER_PROMPT,
+                    condition_on_previous_text=False,
                 )
                 text = "".join(seg.text for seg in segments).strip()
                 if text:
@@ -335,13 +340,31 @@ class VoicePipeline:
                 return f"已取消提醒：{r['message']}"
             return "没有可以取消的提醒"
 
+        # 中文数字映射
+        CN_NUMS = {'一': 1, '二': 2, '两': 2, '三': 3, '四': 4, '五': 5,
+                    '六': 6, '七': 7, '八': 8, '九': 9, '十': 10,
+                    '半': 0.5}
+
+        def _parse_num(s):
+            """解析阿拉伯或中文数字"""
+            try:
+                return int(s)
+            except ValueError:
+                return CN_NUMS.get(s)
+
+        def _clean_msg(msg):
+            """清理提醒消息：去掉末尾标点"""
+            return re.sub(r'[。！？，、.!?\s]+$', '', msg).strip()
+
+        NUM_PAT = r'(\d+|[一二两三四五六七八九十半])'
+
         # 设置相对时间提醒 — 支持多种口语
-        # 匹配: "提醒我10分钟后喝水" / "10分钟后提醒我喝水" / "提个醒10分钟后" / "帮我设个提醒10分钟后" / "提醒一下10分钟后"
-        m = re.search(r"(?:提醒我?|提个醒|设个?提醒|帮我.{0,4}提醒|提醒一下)\s*(?:过?|等?)\s*(\d+)\s*(分钟|小时|秒)\s*(?:后)?\s*(?:提醒我?)?\s*(.*)", text)
+        # 匹配: "提醒我10分钟后喝水" / "10分钟后提醒我喝水" / "帮我记一个两分钟后的提醒"
+        m = re.search(rf"(?:提醒我?|提个醒|设个?提醒|帮我.{{0,4}}提醒|提醒一下)\s*(?:过?|等?)\s*{NUM_PAT}\s*(分钟|小时|秒)\s*(?:后)?\s*的?\s*(?:提醒我?)?\s*(.*)", text)
         if m:
-            amount = int(m.group(1))
+            amount = _parse_num(m.group(1))
             unit = m.group(2)
-            message = m.group(3).strip()
+            message = _clean_msg(m.group(3))
             if not message:
                 message = "时间到了"
             if "分钟" in unit:
@@ -354,12 +377,12 @@ class VoicePipeline:
             display_time = time.strftime("%H:%M", time.localtime(when))
             return f"好的，{display_time}提醒你{message}"
 
-        # 也试试 "X分钟后提醒我Y" 的语序
-        m = re.search(r"(\d+)\s*(分钟|小时|秒)\s*后\s*提醒我?\s*(.*)", text)
+        # 也试试 "X分钟后提醒我Y" 的语序（支持中文数字）
+        m = re.search(rf"{NUM_PAT}\s*(分钟|小时|秒)\s*后\s*的?\s*提醒我?\s*(.*)", text)
         if m:
-            amount = int(m.group(1))
+            amount = _parse_num(m.group(1))
             unit = m.group(2)
-            message = m.group(3).strip()
+            message = _clean_msg(m.group(3))
             if not message:
                 message = "时间到了"
             if "分钟" in unit:

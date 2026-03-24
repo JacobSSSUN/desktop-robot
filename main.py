@@ -94,7 +94,7 @@ def main():
     voice.set_emotion_callback(on_voice_emotion)
 
     # 音乐播放器 widget（右上角）
-    music_player = MusicPlayer(screen, x=530, y=8, w=475, h=100)
+    music_player = MusicPlayer(screen, x=530, y=8, w=475, h=120)
 
     # 开启人脸检测（跟踪需要）— 跟随摄像头开关
     vision.detect_enabled = False
