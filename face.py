@@ -12,7 +12,7 @@ class CuteCharacter:
     def __init__(self, screen):
         self.screen = screen
         self.cx = SCREEN_WIDTH * 3 // 4
-        self.cy = SCREEN_HEIGHT // 2
+        self.cy = SCREEN_HEIGHT // 2 + 120
 
         self.emotion = "idle"
         self.emotion_timer = 0

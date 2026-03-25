@@ -94,7 +94,7 @@ def main():
     voice.set_emotion_callback(on_voice_emotion)
 
     # 音乐播放器 widget（右上角）
-    music_player = MusicPlayer(screen, x=530, y=8, w=475, h=120)
+    music_player = MusicPlayer(screen, x=530, y=8, w=475, h=240)
 
     # 开启人脸检测（跟踪需要）— 跟随摄像头开关
     vision.detect_enabled = False
@@ -144,7 +144,7 @@ def main():
     # 语音按钮（右半屏中间偏下）
     VOICE_BTN_R = 35
     voice_btn_cx = SCREEN_WIDTH * 3 // 4
-    voice_btn_cy = SCREEN_HEIGHT // 2 + 150
+    voice_btn_cy = SCREEN_HEIGHT // 2 + 255
     voice_recording = [False]  # 用列表实现跨作用域共享
     voice_processing = [False]
 
@@ -291,19 +291,73 @@ def main():
     threading.Thread(target=_pot_monitor, daemon=True).start()
     print("[Pot] 电位器音量监控已启动")
 
-    # PS2 摇杆表情控制 (MCP3008 CH1=X, CH2=Y, CH3=SW)
+    # PS2 摇杆音乐控制 (MCP3008 CH1=X, CH2=Y, CH3=SW)
     _JOY_DEAD_MIN = 400
     _JOY_DEAD_MAX = 624
     _joy_last_dir = [None]
     _joy_sw_prev = [1]
 
     def _joystick_monitor():
-        """后台线程：读摇杆方向/按键 → 触发表情"""
+        """后台线程：摇杆控制音乐 + 转圈检测"""
         def _read_ch(ch):
             r = _pot_spi.xfer2([1, (8 + ch) << 4, 0])
             return ((r[1] & 3) << 8) + r[2]
 
+        # 左右推：需要推到底再回中心才触发
+        _pending_push = None       # 记录待触发的方向（left/right）
+        _push_time = 0             # 推出的时刻
+        _PUSH_MIN_HOLD = 0.08      # 最少推出 80ms 才算有效（防抖）
+
+        # 转圈检测
+        _spin_history = []         # [(direction, timestamp), ...]
+        _SPIN_WINDOW = 0.6         # 转圈检测窗口 600ms
+        _spin_triggered = False    # 本轮转圈已触发标记
         _sw_cooldown = 0.0
+
+        # 转圈方向序列
+        _CW_SEQ = {"up": "right", "right": "down", "down": "left", "left": "up"}
+        _CCW_SEQ = {"up": "left", "left": "down", "down": "right", "right": "up"}
+
+        def _fire_direction(d):
+            """触发单次方向操作"""
+            if d == "left":
+                character.trigger_emotion("angry", 3)
+                music_player.play_prev()
+                print(f"[Joy] 左推回中 → 上一首 + angry")
+            elif d == "right":
+                character.trigger_emotion("love", 3)
+                music_player.play_next()
+                print(f"[Joy] 右推回中 → 下一首 + love")
+
+        def _fire_spin(clockwise):
+            """触发转圈操作"""
+            if clockwise:
+                character.trigger_emotion("surprised", 2)
+                music_player.fast_forward(10)
+                print(f"[Joy] 顺时针转 → 快进10s + surprised")
+            else:
+                character.trigger_emotion("shy", 2)
+                music_player.fast_rewind(10)
+                print(f"[Joy] 逆时针转 → 快退10s + shy")
+
+        def _check_spin(history):
+            """检查方向历史是否构成转圈，返回 'cw'/'ccw'/None"""
+            if len(history) < 3:
+                return None
+            dirs = [d for d, _ in history]
+            cw_count = 0
+            ccw_count = 0
+            for i in range(1, len(dirs)):
+                if _CW_SEQ.get(dirs[i-1]) == dirs[i]:
+                    cw_count += 1
+                elif _CCW_SEQ.get(dirs[i-1]) == dirs[i]:
+                    ccw_count += 1
+            if cw_count >= 3:
+                return "cw"
+            if ccw_count >= 3:
+                return "ccw"
+            return None
+
         while True:
             time.sleep(0.08)
             try:
@@ -312,19 +366,21 @@ def main():
             except Exception:
                 break
 
-            # 按键检测 (GPIO12, 内部上拉, 按下拉低)
             now = time.time()
+
+            # 按键检测 (GPIO12, 内部上拉, 按下拉低) → 播放/暂停
             try:
                 sw_val = lgpio.gpio_read(_gpio_handle, 12)
             except Exception:
                 sw_val = 1
             if sw_val == 0 and _joy_sw_prev[0] == 1 and now > _sw_cooldown:
-                character.trigger_emotion("surprised", 2)
+                character.trigger_emotion("happy", 2)
+                music_player.toggle_play()
                 _sw_cooldown = now + 1.0
-                print("[Joy] 摇杆按下 → surprised")
+                print("[Joy] 摇杆按下 → 播放/暂停 + happy")
             _joy_sw_prev[0] = sw_val
 
-            # 方向检测（带方向锁，同方向不重复触发）
+            # 方向检测
             direction = None
             if x < _JOY_DEAD_MIN:
                 direction = "left"
@@ -335,20 +391,40 @@ def main():
             elif y > _JOY_DEAD_MAX:
                 direction = "down"
 
-            if direction and direction != _joy_last_dir[0]:
-                emo_map = {
-                    "up": ("happy", 3),
-                    "down": ("sad", 3),
-                    "left": ("angry", 3),
-                    "right": ("love", 3),
-                }
-                emo, dur = emo_map[direction]
-                character.trigger_emotion(emo, dur)
-                print(f"[Joy] 摇杆 {direction} → {emo}")
+            if direction != _joy_last_dir[0]:
+                # 方向变化时记录转圈历史
+                if direction:
+                    _spin_history.append((direction, now))
+                    _spin_history[:] = [(d, t) for d, t in _spin_history if now - t < _SPIN_WINDOW]
+
+                    # 检查转圈
+                    spin = _check_spin(_spin_history)
+                    if spin and not _spin_triggered:
+                        _fire_spin(spin == "cw")
+                        _spin_triggered = True
+                        _pending_push = None  # 转圈取消待触发的单推
+                        _spin_history.clear()
+
+                # 左右推：记录为待触发
+                if direction in ("left", "right") and not _spin_triggered:
+                    _pending_push = direction
+                    _push_time = now
+
+                # 回到中心：触发之前记录的左右推
+                if direction is None and _pending_push and not _spin_triggered:
+                    hold_time = now - _push_time
+                    if hold_time >= _PUSH_MIN_HOLD:
+                        _fire_direction(_pending_push)
+                    _pending_push = None
+
+                # 回到中心后重置转圈触发标记
+                if direction is None:
+                    _spin_triggered = False
+
             _joy_last_dir[0] = direction
 
     threading.Thread(target=_joystick_monitor, daemon=True).start()
-    print("[Joy] 摇杆表情控制已启动")
+    print("[Joy] 摇杆音乐控制已启动")
 
     # 物理语音按键 (GPIO16, 按下低电平) — 用 lgpio 直接读取
     import lgpio

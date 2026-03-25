@@ -8,6 +8,7 @@
  *   node ncm_api.js liked                         # 获取我喜欢的歌单
  *   node ncm_api.js url <song_id>                 # 获取歌曲URL
  *   node ncm_api.js search <keyword>              # 搜索
+ *   node ncm_api.js lyric <song_id>                # 获取歌词(LRC)
  *   node ncm_api.js check                         # 检查登录状态
  */
 const path = require('path');
@@ -225,6 +226,28 @@ async function search(keyword) {
     }
 }
 
+async function getLyric(songId) {
+    try {
+        const res = await NeteaseApi.lyric({
+            id: songId,
+            cookie: loadCookies(),
+        });
+        if (res.body.code === 200) {
+            const lrc = (res.body.lrc || {}).lyric || '';
+            const tlyric = (res.body.tlyric || {}).lyric || '';
+            console.log(JSON.stringify({
+                success: true,
+                lrc: lrc,
+                tlyric: tlyric,
+            }));
+        } else {
+            console.log(JSON.stringify({ success: false, msg: 'no lyric' }));
+        }
+    } catch (e) {
+        console.log(JSON.stringify({ success: false, msg: e.message }));
+    }
+}
+
 async function main() {
     const args = process.argv.slice(2);
     const cmd = args[0];
@@ -237,6 +260,7 @@ async function main() {
         case 'playlist': await getPlaylist(args.slice(1).join(' ')); break;
         case 'url': await getSongUrl(args[1]); break;
         case 'search': await search(args.slice(1).join(' ')); break;
+        case 'lyric': await getLyric(args[1]); break;
         default:
             console.log('用法: node ncm_api.js <command> [args...]');
             console.log('  login_sms <phone> <code>');
@@ -245,6 +269,7 @@ async function main() {
             console.log('  check');
             console.log('  liked');
             console.log('  url <song_id>');
+            console.log('  lyric <song_id>');
             console.log('  search <keyword>');
     }
     // 确保进程退出
