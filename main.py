@@ -184,7 +184,7 @@ def main():
         if not whisper_ready[0]:
             # Whisper 加载中 — 灰色 + 旋转
             pygame.draw.circle(surface, (30, 30, 40), (cx, cy), r)
-            pygame.draw.circle(surface, (60, 60, 75), (cx, cy), r, 2)
+            pygame.draw.circle(surface, (80, 80, 100), (cx, cy), r, 3)
             angle = time.time() * 2
             for i in range(4):
                 a = angle + i * 1.57
@@ -200,13 +200,13 @@ def main():
                 pygame.draw.circle(surface, (180, 50 + ring * 20, 50 + ring * 20),
                                    (cx, cy), rr, 2)
             pygame.draw.circle(surface, (210, 55, 55), (cx, cy), r)
-            pygame.draw.circle(surface, (240, 90, 90), (cx, cy), r, 2)
+            pygame.draw.circle(surface, (240, 90, 90), (cx, cy), r, 3)
             _draw_mic3(surface, cx, cy, (255, 255, 255))
 
         elif voice_processing[0]:
             # 处理中 — 蓝底 + 旋转点
             pygame.draw.circle(surface, (35, 55, 95), (cx, cy), r)
-            pygame.draw.circle(surface, (70, 110, 190), (cx, cy), r, 2)
+            pygame.draw.circle(surface, (70, 110, 190), (cx, cy), r, 3)
             angle = time.time() * 4
             for i in range(6):
                 a = angle + i * 1.047
@@ -217,7 +217,7 @@ def main():
         else:
             # 待机 — 深色圆
             pygame.draw.circle(surface, (40, 40, 55), (cx, cy), r)
-            pygame.draw.circle(surface, (90, 90, 115), (cx, cy), r, 2)
+            pygame.draw.circle(surface, (110, 110, 135), (cx, cy), r, 3)
             _draw_mic3(surface, cx, cy, (160, 160, 180))
 
     def _draw_mic3(surface, cx, cy, color):
@@ -613,50 +613,55 @@ def main():
 
     def draw_buttons(surface):
         """绘制底部按钮"""
-        # 超声波开关按钮 — 画声波图形
-        ultra_color = (60, 130, 60) if ultrasonic_enabled else (60, 60, 80)
-        pygame.draw.rect(surface, ultra_color, ultra_btn, border_radius=10)
-        pygame.draw.rect(surface, (100, 100, 120), ultra_btn, 2, border_radius=10)
-        # 居中画声波图标
+        ICON_ON = (230, 230, 240)    # 统一：开启时图标色
+        ICON_OFF = (110, 110, 125)   # 统一：关闭时图标色
+        BORDER_ON = (130, 175, 130)  # 开启时边框（亮绿）
+        BORDER_OFF = (85, 85, 105)   # 关闭时边框
+        import math
+
+        # 超声波按钮 — 雷达脉冲图标（中心点 + 3条扩散弧线）
+        ultra_bg = (55, 120, 55) if ultrasonic_enabled else (50, 50, 65)
+        ultra_border = BORDER_ON if ultrasonic_enabled else BORDER_OFF
+        pygame.draw.rect(surface, ultra_bg, ultra_btn, border_radius=10)
+        pygame.draw.rect(surface, ultra_border, ultra_btn, 3, border_radius=10)
         ucx = ultra_btn.x + BTN_SIZE // 2
         ucy = ultra_btn.y + BTN_SIZE // 2
-        col = (200, 200, 200) if ultrasonic_enabled else (120, 120, 130)
-        # 小喇叭（左下）
-        pygame.draw.polygon(surface, col, [
-            (ucx - 8, ucy - 4), (ucx - 2, ucy - 8),
-            (ucx - 2, ucy + 8), (ucx - 8, ucy + 4)
-        ])
-        # 声波弧线（右半圆，3条）
-        import math
-        for r in [8, 14, 20]:
+        col = ICON_ON if ultrasonic_enabled else ICON_OFF
+        # 中心实心点
+        pygame.draw.circle(surface, col, (ucx, ucy), 3)
+        # 3条扩散弧线（上方半圆）
+        for i, r in enumerate([9, 16, 23]):
             pts = []
-            for deg in range(-50, 51, 5):
-                rad = math.radians(deg)
+            for deg in range(-70, 71, 3):
+                rad = math.radians(deg - 90)  # 朝上
                 px = ucx + int(r * math.cos(rad))
-                py = ucy - int(r * math.sin(rad))
+                py = ucy + int(r * math.sin(rad))
                 pts.append((px, py))
             if len(pts) >= 2:
                 pygame.draw.lines(surface, col, False, pts, 2)
 
-        # 摄像头按钮 — 画相机图形
-        cam_color = (60, 130, 60) if show_camera else (60, 60, 80)
-        pygame.draw.rect(surface, cam_color, cam_btn, border_radius=10)
-        pygame.draw.rect(surface, (100, 100, 120), cam_btn, 2, border_radius=10)
+        # 摄像头按钮 — 相机图形
+        cam_bg = (55, 120, 55) if show_camera else (50, 50, 65)
+        cam_border = BORDER_ON if show_camera else BORDER_OFF
+        pygame.draw.rect(surface, cam_bg, cam_btn, border_radius=10)
+        pygame.draw.rect(surface, cam_border, cam_btn, 3, border_radius=10)
+        col = ICON_ON if show_camera else ICON_OFF
         # 相机身
         body = pygame.Rect(cam_btn.x + 10, cam_btn.y + 16, 30, 20)
-        pygame.draw.rect(surface, (200, 200, 200), body, border_radius=3)
-        # 镜头
-        pygame.draw.circle(surface, (200, 200, 200),
+        pygame.draw.rect(surface, col, body, border_radius=3)
+        # 镜头外圈
+        pygame.draw.circle(surface, col,
                            (cam_btn.x + 25, cam_btn.y + 26), 8)
-        pygame.draw.circle(surface, cam_color,
+        # 镜头内圈（用背景色镂空）
+        pygame.draw.circle(surface, cam_bg,
                            (cam_btn.x + 25, cam_btn.y + 26), 5)
         # 闪光灯小方块
-        pygame.draw.rect(surface, (200, 200, 200),
+        pygame.draw.rect(surface, col,
                          (cam_btn.x + 14, cam_btn.y + 12, 8, 5))
 
         # 退出按钮 — 画 X
         pygame.draw.rect(surface, (100, 40, 40), exit_btn, border_radius=10)
-        pygame.draw.rect(surface, (150, 60, 60), exit_btn, 2, border_radius=10)
+        pygame.draw.rect(surface, (170, 70, 70), exit_btn, 3, border_radius=10)
         cx, cy = exit_btn.x + BTN_SIZE // 2, exit_btn.y + BTN_SIZE // 2
         pygame.draw.line(surface, (220, 100, 100),
                          (cx - 10, cy - 10), (cx + 10, cy + 10), 3)
