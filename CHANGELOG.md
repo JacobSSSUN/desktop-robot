@@ -1,5 +1,14 @@
 # 桌面机器人 - 版本记录
 
+## v2.6 - 2026-03-26
+
+### 修复
+- **Sleepy 唤醒机制** (`main.py`)
+  - 语音对话完成后 sleepy → idle（之前只重置计时器，不改表情）
+  - 新增 webchat 对话检测：webchat 回复时 sleepy → idle
+  - 通过 `webchat_active.txt` 文件同步 webchat 会话状态
+  - 其他触发（超声波、提醒、早报）不受影响
+
 ## v2.5 - 2026-03-25
 
 ### 新增

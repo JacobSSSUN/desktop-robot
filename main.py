@@ -102,6 +102,8 @@ def main():
     # 情绪文件
     CHAT_OUT = "/home/jacob/robot/chat_out.txt"
     last_chat_out_mtime = 0
+    WEBCHAT_FILE = "/home/jacob/robot/webchat_active.txt"
+    last_webchat_mtime = 0
     EMOTION_FILE = "/home/jacob/robot/emotion.txt"
     last_emotion_mtime = 0
     no_chat_timer = 0
@@ -845,12 +847,26 @@ def main():
             except Exception:
                 pass
 
-            # 检测对话（仅语音对话和 web UI，不包含飞书）
+            # 检测对话（仅语音对话和 webchat，不包含飞书）
+            # 语音对话
             try:
                 co = os.path.getmtime(CHAT_OUT)
                 if co > last_chat_out_mtime:
                     last_chat_out_mtime = co
                     no_chat_timer = 0
+                    if character.emotion == "sleepy":
+                        character.trigger_emotion("idle", 0)
+            except Exception:
+                pass
+
+            # webchat 对话
+            try:
+                wc = os.path.getmtime(WEBCHAT_FILE)
+                if wc > last_webchat_mtime:
+                    last_webchat_mtime = wc
+                    no_chat_timer = 0
+                    if character.emotion == "sleepy":
+                        character.trigger_emotion("idle", 0)
             except Exception:
                 pass
 
