@@ -255,10 +255,9 @@ def main():
         pygame.quit()
         sys.exit(0)
 
-    vision.start()
+    # vision 和 servo 在摄像头开启时才 start，节省资源
     ultrasonic.start()
     touch.start()
-    servo.start()
 
     # 电位器音量控制 (MCP3008 AIN0, SPI CE0)
     _pot_spi = spidev.SpiDev()
@@ -736,12 +735,17 @@ def main():
                         print(f"[Main] 超声波反应 {state}")
                     elif cam_btn.collidepoint(mx, my):
                         show_camera = not show_camera
-                        vision.detect_enabled = show_camera
-                        servo.tracking_enabled = show_camera
                         if show_camera:
-                            servo.center()
+                            vision.start()
+                            vision.detect_enabled = True
+                            servo.start()
+                            servo.tracking_enabled = True
                             print("[Main] 摄像头+跟踪 开启")
                         else:
+                            vision.detect_enabled = False
+                            servo.tracking_enabled = False
+                            vision.stop()
+                            servo.stop()
                             print("[Main] 摄像头+跟踪 关闭")
                     elif exit_btn.collidepoint(mx, my):
                         running = False
@@ -820,8 +824,11 @@ def main():
                 pet_path = []
                 tap_start = None
 
-            # 人脸跟踪 → 舵机
-            faces = vision.get_faces()
+            # 人脸跟踪 → 舵机（仅摄像头开启时）
+            if show_camera:
+                faces = vision.get_faces()
+            else:
+                faces = []
             if faces:
                 # 取最大的人脸
                 biggest = max(faces, key=lambda f: f[2] * f[3])

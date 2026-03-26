@@ -38,9 +38,12 @@ class Vision:
         print("[Vision] 摄像头启动")
 
     def stop(self):
+        if not self.running:
+            return
         self.running = False
         if self._thread:
             self._thread.join(timeout=2)
+            self._thread = None
         self.cam.stop()
         print("[Vision] 摄像头停止")
 

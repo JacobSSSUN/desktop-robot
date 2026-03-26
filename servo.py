@@ -112,9 +112,12 @@ class ServoController:
         print("[Servo] 舵机启动，开始跟踪")
 
     def stop(self):
+        if not self.running:
+            return
         self.running = False
         if self._thread:
             self._thread.join(timeout=2)
+            self._thread = None
         self._set_pwm(self.pan_ch, 0)
         self._set_pwm(self.tilt_ch, 0)
         print("[Servo] 舵机停止")
