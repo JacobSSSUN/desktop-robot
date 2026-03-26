@@ -625,7 +625,7 @@ def main():
         pygame.draw.rect(surface, ultra_bg, ultra_btn, border_radius=10)
         pygame.draw.rect(surface, ultra_border, ultra_btn, 3, border_radius=10)
         ucx = ultra_btn.x + BTN_SIZE // 2
-        ucy = ultra_btn.y + BTN_SIZE // 2
+        ucy = ultra_btn.y + BTN_SIZE // 2 + 4  # 弧线朝上，视觉重心下移补偿
         col = ICON_ON if ultrasonic_enabled else ICON_OFF
         # 中心实心点
         pygame.draw.circle(surface, col, (ucx, ucy), 3)
