@@ -1,7 +1,7 @@
 #!/usr/bin/env python3
 """
 voice_pipeline.py — 语音管线
-按住录音 → Whisper STT → edge-tts 播报
+按住录音 → Whisper STT → Piper TTS 播报
 支持表情回调：listening / thinking / speaking
 支持唤醒词检测
 """
@@ -13,6 +13,7 @@ import time
 import threading
 import os
 from faster_whisper import WhisperModel
+from piper import PiperVoice
 from reminder import add_reminder, list_pending, cancel_last
 import re
 
@@ -22,8 +23,7 @@ WHISPER_PROMPT = "以下是普通话的句子，偶尔夹杂英语单词。请�
 SAMPLE_RATE = 48000
 CHANNELS = 1
 CHUNK = 4096
-TTS_VOICE = "zh-CN-XiaoxiaoNeural"
-TTS_RATE = "+0%"
+PIPER_MODEL = "/home/jacob/robot/tts_models/zh_CN-huayan-medium.onnx"
 
 CHAT_IN = "/home/jacob/robot/chat_in.txt"
 CHAT_OUT = "/home/jacob/robot/chat_out.txt"
@@ -31,7 +31,8 @@ CHAT_OUT = "/home/jacob/robot/chat_out.txt"
 
 class VoicePipeline:
     def __init__(self):
-        self._model = None
+        self._model = None  # Whisper
+        self._tts = None    # Piper TTS
         self._pa = pyaudio.PyAudio()
         self._stream = None
         self._frames = []
@@ -67,8 +68,16 @@ class VoicePipeline:
             print("[Voice] 加载 Whisper 模型...")
             t0 = time.time()
             self._model = WhisperModel(WHISPER_MODEL, device="cpu", compute_type="int8")
-            print(f"[Voice] 模型加载完成 ({time.time()-t0:.1f}s)")
+            print(f"[Voice] Whisper 加载完成 ({time.time()-t0:.1f}s)")
         return self._model
+
+    def _get_tts(self):
+        if self._tts is None:
+            print("[Voice] 加载 Piper TTS...")
+            t0 = time.time()
+            self._tts = PiperVoice.load(PIPER_MODEL)
+            print(f"[Voice] Piper 加载完成 ({time.time()-t0:.1f}s)")
+        return self._tts
 
     # ---- 按钮录音 ----
     def start_recording(self):
@@ -179,12 +188,21 @@ class VoicePipeline:
         if not text:
             return
         print(f"[Voice] 播报: {text}")
-        tmp = tempfile.NamedTemporaryFile(suffix=".mp3", delete=False)
-        subprocess.run(
-            ["edge-tts", "--voice", TTS_VOICE, "--rate", TTS_RATE,
-             "--text", text, "--write-media", tmp.name],
-            check=True, capture_output=True,
-        )
+
+        # Piper TTS 合成
+        tts = self._get_tts()
+        tmp = tempfile.NamedTemporaryFile(suffix=".wav", delete=False)
+        import wave, numpy as np
+        chunks = []
+        for chunk in tts.synthesize(text):
+            chunks.append(chunk.audio_int16_array)
+        all_samples = np.concatenate(chunks)
+        with wave.open(tmp.name, 'wb') as wf:
+            wf.setnchannels(1)
+            wf.setsampwidth(2)
+            wf.setframerate(22050)
+            wf.writeframes(all_samples.tobytes())
+
         # 音频生成完再触发动画
         self._set_emotion("speaking", 30)
         subprocess.run(["pw-play", tmp.name], check=True)

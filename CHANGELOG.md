@@ -19,6 +19,12 @@
   - 点击摄像头按钮时才 start，关闭时 stop
   - vision/servo stop() 增加重复调用保护
   - 人脸跟踪代码仅在摄像头开启时执行
+- **TTS 切换到 Piper** (`voice_pipeline.py`)
+  - edge-tts (联网) → Piper TTS (本地, onnxruntime)
+  - 模型: zh_CN-huayan-medium (61MB, medium 质量)
+  - 速度: 0.64s 生成 4.8s 语音 (7.5x 实时)
+  - 完全离线，无需网络
+  - 懒加载: 第一次 speak() 时才初始化 (~2.2s)
 
 ## v2.5 - 2026-03-25
 
