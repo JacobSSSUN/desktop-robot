@@ -687,9 +687,11 @@ def main():
         ty = vol_bar_y + (vol_bar_h - vol_text.get_height()) // 2
         surface.blit(vol_text, (tx, ty))
 
+    _frame = 0
     try:
         while running:
             dt = clock.tick(FPS) / 1000.0
+            _frame += 1
 
             # 音乐播放器状态更新（处理语音指令、检测播放结束）
             music_player.update()
@@ -844,43 +846,45 @@ def main():
             else:
                 servo.update_face_position(0, 0, detected=False)
 
-            # 读取情绪文件
-            try:
-                em = os.path.getmtime(EMOTION_FILE)
-                if em != last_emotion_mtime:
-                    last_emotion_mtime = em
-                    with open(EMOTION_FILE, "r", encoding="utf-8") as f:
-                        emo = f.read().strip()
-                    if emo in ["idle", "happy", "surprised", "love", "sleepy", "sad", "angry", "shy"]:
-                        if emo == "sleepy":
-                            character.trigger_emotion("sleepy", 3660)
-                        else:
-                            character.trigger_emotion(emo, 15)
-            except Exception:
-                pass
+            # 文件检查节流：每 5 帧检查一次（20fps × 5 = 每 250ms）
+            if _frame % 5 == 0:
+                # 读取情绪文件
+                try:
+                    em = os.path.getmtime(EMOTION_FILE)
+                    if em != last_emotion_mtime:
+                        last_emotion_mtime = em
+                        with open(EMOTION_FILE, "r", encoding="utf-8") as f:
+                            emo = f.read().strip()
+                        if emo in ["idle", "happy", "surprised", "love", "sleepy", "sad", "angry", "shy"]:
+                            if emo == "sleepy":
+                                character.trigger_emotion("sleepy", 3660)
+                            else:
+                                character.trigger_emotion(emo, 15)
+                except Exception:
+                    pass
 
-            # 检测对话（仅语音对话和 webchat，不包含飞书）
-            # 语音对话
-            try:
-                co = os.path.getmtime(CHAT_OUT)
-                if co > last_chat_out_mtime:
-                    last_chat_out_mtime = co
-                    no_chat_timer = 0
-                    if character.emotion == "sleepy":
-                        character.trigger_emotion("idle", 0)
-            except Exception:
-                pass
+                # 检测对话（仅语音对话和 webchat，不包含飞书）
+                # 语音对话
+                try:
+                    co = os.path.getmtime(CHAT_OUT)
+                    if co > last_chat_out_mtime:
+                        last_chat_out_mtime = co
+                        no_chat_timer = 0
+                        if character.emotion == "sleepy":
+                            character.trigger_emotion("idle", 0)
+                except Exception:
+                    pass
 
-            # webchat 对话
-            try:
-                wc = os.path.getmtime(WEBCHAT_FILE)
-                if wc > last_webchat_mtime:
-                    last_webchat_mtime = wc
-                    no_chat_timer = 0
-                    if character.emotion == "sleepy":
-                        character.trigger_emotion("idle", 0)
-            except Exception:
-                pass
+                # webchat 对话
+                try:
+                    wc = os.path.getmtime(WEBCHAT_FILE)
+                    if wc > last_webchat_mtime:
+                        last_webchat_mtime = wc
+                        no_chat_timer = 0
+                        if character.emotion == "sleepy":
+                            character.trigger_emotion("idle", 0)
+                except Exception:
+                    pass
 
             # 没说话计时 → 困
             no_chat_timer += dt

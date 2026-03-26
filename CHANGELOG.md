@@ -19,6 +19,9 @@
   - 点击摄像头按钮时才 start，关闭时 stop
   - vision/servo stop() 增加重复调用保护
   - 人脸跟踪代码仅在摄像头开启时执行
+- **性能优化** (`config.py`, `main.py`)
+  - FPS 30 → 20，降低 CPU 占用
+  - 文件检查（emotion.txt / chat_out.txt / webchat_active.txt）改为每 5 帧一次（250ms）
 - **TTS 切换到 Piper** (`voice_pipeline.py`)
   - edge-tts (联网) → Piper TTS (本地, onnxruntime)
   - 模型: zh_CN-huayan-medium (61MB, medium 质量)
