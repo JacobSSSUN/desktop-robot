@@ -36,6 +36,13 @@ def main():
     print("=== 🦐 桌面机器人 v4 启动 ===")
 
     pygame.init()
+
+    # 分辨率检查：确保屏幕实际分辨率匹配配置
+    _info = pygame.display.Info()
+    if _info.current_w != SCREEN_WIDTH or _info.current_h != SCREEN_HEIGHT:
+        print(f"[WARN] 屏幕分辨率不匹配: 检测到 {_info.current_w}x{_info.current_h}, 期望 {SCREEN_WIDTH}x{SCREEN_HEIGHT}")
+        print("[WARN] 画面可能出现缩放，请检查 /boot/firmware/config.txt 的 hdmi_cvt 设置")
+
     screen = pygame.display.set_mode((SCREEN_WIDTH, SCREEN_HEIGHT), pygame.FULLSCREEN)
     pygame.display.set_caption("Robot Friend")
     pygame.mouse.set_visible(True)
@@ -889,7 +896,7 @@ def main():
             # 没说话计时 → 困
             no_chat_timer += dt
             if no_chat_timer > NO_CHAT_TIMEOUT and character.emotion != "sleepy":
-                character.trigger_emotion("sleepy", 35)
+                character.trigger_emotion("sleepy", 0)  # 永久 sleepy，直到有对话唤醒
 
             # 超声波距离反应
             if ultrasonic_enabled and (character.emotion == "idle" or character.emotion_timer < 0.5):

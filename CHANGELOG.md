@@ -1,5 +1,16 @@
 # 桌面机器人 - 版本记录
 
+## v2.7 - 2026-03-27
+
+### 修复
+- **Sleepy 循环 bug** (`main.py`)
+  - 超时触发 sleepy duration=35s → 到期变 idle → 又立刻触发 sleepy，无限循环
+  - 修复：超时触发 sleepy 改为 duration=0（永久），直到有对话唤醒
+- **7 寸屏分辨率问题** (`main.py`, `/boot/firmware/config.txt`)
+  - 7 寸屏 EDID 不报告 1024x600，Wayland 默认选 1024x768，画面压缩上缩
+  - config.txt 添加 `hdmi_cvt=1024 600 60 3 0 0 0` 强制正确分辨率
+  - main.py 启动时自动检测分辨率，不匹配时打印警告
+
 ## v2.6 - 2026-03-26
 
 ### 修复
